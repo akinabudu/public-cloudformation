@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Create an EC2 instance with vertical scaling using Auto Scaling Group based on CPU and network bandwidth
+
+Parameters:
+  InstanceType:
+    Description: Instance type for the EC2 instance
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - m5.large
+      # Add more instance types as needed
+  myImageId:
+    Type: AWS::EC2::Image::Id
+    Description: Specify the AMI ID for your EC2 instance
+
+  mySG:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Specify your existing security group ID
+
+  myKeyName: 
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Specify your existing EC2 key pair name 
+
+  mySubnet:
+    Type: AWS::EC2::Subnet::Id
+    Description: Specify your existing subnet ID
+
+
+  myAZs:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: List of availability zones
+
+
+Resources:
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EC2FullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:*
+                Resource: '*'
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref EC2InstanceRole
+
+  
+ 
+  LaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref myImageId # Specify the AMI ID for your EC2 instance
+      InstanceType: !Ref InstanceType
+      SecurityGroups:
+        - !Ref mySG # Specify your existing security group ID
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      KeyName: !Ref myKeyName # Specify your existing EC2 key pair name sfsdf<Left>> # Specify your existing EC2 key pair name
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      DesiredCapacity: 1
+      MinSize: 1
+      MaxSize: 1 # Adjust max size as needed
+      LaunchConfigurationName: !Ref LaunchConfig
+        #     AvailabilityZones: !Ref myAZs
+      VPCZoneIdentifier:
+        - !Ref mySubnet # Specify your existing subnet ID
+      Tags:
+        - Key: Name
+          Value: EC2AutoScalingGroup
+          PropagateAtLaunch: true
+
+  CPUAlarmHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Scale up if CPU > 70%"
+      Namespace: "AWS/EC2"
+      MetricName: "CPUUtilization"
+      Dimensions:
+        - Name: "AutoScalingGroupName"
+          Value: !Ref AutoScalingGroup
+      Statistic: "Average"
+      Period: "300"
+      EvaluationPeriods: "1"
+      Threshold: "70"
+      ComparisonOperator: "GreaterThanThreshold"
+      AlarmActions:
+        - !Ref ScaleUpPolicy
+
+  NetworkInAlarmHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Scale up if Network In > 1 MB/s"
+      Namespace: "AWS/EC2"
+      MetricName: "NetworkIn"
+      Dimensions:
+        - Name: "AutoScalingGroupName"
+          Value: !Ref AutoScalingGroup
+      Statistic: "Average"
+      Period: "300"
+      EvaluationPeriods: "1"
+      Threshold: "1000000" # 1 MB/s
+      ComparisonOperator: "GreaterThanThreshold"
+      AlarmActions:
+        - !Ref ScaleUpPolicy
+
+  ScaleUpPolicy:
+    Type: "AWS::AutoScaling::ScalingPolicy"
+    Properties:
+      AdjustmentType: "ChangeInCapacity"
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      Cooldown: "300"
+      ScalingAdjustment: "1"
+
